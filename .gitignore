@@ -1,0 +1,76 @@
+# =========================
+# Node modules (both frontend & backend)
+# =========================
+node_modules/
+*/node_modules/
+node_modules
+frontend/node_modules/
+backend/node_modules/
+
+# =========================
+# Build / Dist folders
+# =========================
+dist/
+dist-ssr/
+build/
+*/dist/
+*/build/
+frontend/dist/
+frontend/build/
+backend/dist/
+backend/build/
+
+# =========================
+# Environment variables (CRITICAL!)
+# =========================
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+*.env
+backend/.env
+frontend/.env
+
+# =========================
+# Logs
+# =========================
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# =========================
+# Editor / OS files
+# =========================
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.local
+
+# =========================
+# Misc
+# =========================
+.coverage
+.nyc_output
+.cache
+.eslintcache
+.prettierrc
+*.tsbuildinfo
+tmp/
+temp/
+
+# =========================
+# Optional: Docker (if you use later)
+# =========================
+Dockerfile*
+.dockerignore
