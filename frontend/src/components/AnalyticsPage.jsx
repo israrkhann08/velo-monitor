@@ -10,7 +10,7 @@ import {
   Pie, 
   Cell, 
   Legend,
-  LabelList // <--- Imported LabelList
+  LabelList 
 } from 'recharts';
 import SummaryCard from './SummaryCard';
 
@@ -23,18 +23,36 @@ const AnalyticsPage = ({ meta, analytics }) => {
     { name: 'Offline', value: meta.offline },
   ];
 
-  // Prepare ISP data for Bar Chart
+  // Prepare ISP data
   const ispData = analytics.ispStats || [];
 
-  // Custom label function for Pie Chart percentages
+  // Custom label for Pie Chart percentages
   const renderPieLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, index }) => {
-    if (percent === 0) return null; // Don't show label if 0%
-    return `${(percent * 100).toFixed(1)}%`;
+    if (percent === 0) return null;
+    return `${(percent * 100).toFixed(0)}%`;
+  };
+
+  // Custom formatter for the Bar Chart labels (hide 0 values)
+  const renderCustomLabel = (props) => {
+    const { x, y, width, height, value } = props;
+    if (!value || value === 0) return null; // Don't show 0
+    return (
+      <text 
+        x={x + width / 2} 
+        y={y + height / 1.5} 
+        fill="#fff" 
+        textAnchor="middle" 
+        fontSize={12}
+        fontWeight="bold"
+      >
+        {value}
+      </text>
+    );
   };
 
   return (
     <div id="analytics-page" className="page">
-      {/* Top Cards Reuse */}
+      {/* Top Cards */}
       <section className="summary-grid">
         <SummaryCard title="Total Edges" value={meta.total} />
         <SummaryCard title="Total Links Tracked" value={ispData.reduce((acc, curr) => acc + curr.total, 0)} />
@@ -43,7 +61,7 @@ const AnalyticsPage = ({ meta, analytics }) => {
 
       <div className="analytics-charts-grid">
         
-        {/* Chart 1: Edge Health Status */}
+        {/* Chart 1: Edge Health Distribution */}
         <div className="summary-card" style={{ minHeight: '400px' }}>
           <h3>Edge Health Distribution</h3>
           <ResponsiveContainer width="100%" height={300}>
@@ -57,7 +75,6 @@ const AnalyticsPage = ({ meta, analytics }) => {
                 fill="#8884d8"
                 paddingAngle={5}
                 dataKey="value"
-                // Added label prop to show percentage automatically
                 label={renderPieLabel} 
               >
                 {statusData.map((entry, index) => (
@@ -70,24 +87,35 @@ const AnalyticsPage = ({ meta, analytics }) => {
           </ResponsiveContainer>
         </div>
 
-        {/* Chart 2: Links per ISP */}
+        {/* Chart 2: Links per ISP (Stacked: Stable vs Unstable) */}
         <div className="summary-card" style={{ minHeight: '400px' }}>
           <h3>Link Count by ISP</h3>
-          {/* Increased height slightly to give bars room */}
           <ResponsiveContainer width="100%" height={ispData.length * 50 > 300 ? ispData.length * 50 : 300}>
             <BarChart 
               data={ispData.slice(0, 10)} 
               layout="vertical" 
-              margin={{ top: 5, right: 40, left: 20, bottom: 5 }} // Added right margin for labels
+              margin={{ top: 5, right: 30, left: 10, bottom: 5 }}
             >
-              <XAxis type="number" hide /> {/* Hiding bottom numbers to clean it up */}
-              {/* Increased width to 150 to accommodate longer ISP names */}
-              <YAxis type="category" dataKey="name" width={140} tick={{fontSize: 12}} />
+              <XAxis type="number" hide />
+              <YAxis 
+                type="category" 
+                dataKey="name" 
+                width={140} 
+                tick={{fontSize: 12}} 
+              />
               <Tooltip cursor={{fill: 'transparent'}} />
-              <Bar dataKey="total" fill="#0d6efd" radius={[0, 4, 4, 0]} barSize={30}>
-                {/* Shows value permanently on the right of the bar */}
-                <LabelList dataKey="total" position="right" style={{ fill: '#666', fontSize: '12px', fontWeight: 'bold' }} />
+              <Legend verticalAlign="top" height={36} />
+
+              {/* Stacked Bar 1: Stable */}
+              <Bar dataKey="stable" name="Stable" stackId="a" fill="#198754" barSize={30}>
+                 <LabelList content={renderCustomLabel} />
               </Bar>
+
+              {/* Stacked Bar 2: Unstable (Shows distinct Red section if any links are down) */}
+              <Bar dataKey="unstable" name="Unstable" stackId="a" fill="#dc3545" barSize={30}>
+                 <LabelList content={renderCustomLabel} />
+              </Bar>
+
             </BarChart>
           </ResponsiveContainer>
         </div>
