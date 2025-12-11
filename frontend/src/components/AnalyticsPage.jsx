@@ -1,8 +1,18 @@
 import React from 'react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  Tooltip, 
+  ResponsiveContainer, 
+  PieChart, 
+  Pie, 
+  Cell, 
+  Legend,
+  LabelList // <--- Imported LabelList
+} from 'recharts';
 import SummaryCard from './SummaryCard';
-
-const COLORS = ['#198754', '#ffc107', '#dc3545', '#0d6efd', '#6610f2'];
 
 const AnalyticsPage = ({ meta, analytics }) => {
   if (!meta || !analytics) return <div className="placeholder-page">Loading Analytics...</div>;
@@ -16,6 +26,12 @@ const AnalyticsPage = ({ meta, analytics }) => {
   // Prepare ISP data for Bar Chart
   const ispData = analytics.ispStats || [];
 
+  // Custom label function for Pie Chart percentages
+  const renderPieLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, index }) => {
+    if (percent === 0) return null; // Don't show label if 0%
+    return `${(percent * 100).toFixed(1)}%`;
+  };
+
   return (
     <div id="analytics-page" className="page">
       {/* Top Cards Reuse */}
@@ -25,7 +41,6 @@ const AnalyticsPage = ({ meta, analytics }) => {
         <SummaryCard title="Last Updated" value={new Date(meta.fetchedAt).toLocaleTimeString()} />
       </section>
 
-      {/* Changed from inline style to class for responsive stacking */}
       <div className="analytics-charts-grid">
         
         {/* Chart 1: Edge Health Status */}
@@ -42,6 +57,8 @@ const AnalyticsPage = ({ meta, analytics }) => {
                 fill="#8884d8"
                 paddingAngle={5}
                 dataKey="value"
+                // Added label prop to show percentage automatically
+                label={renderPieLabel} 
               >
                 {statusData.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={[ '#198754', '#ffc107', '#dc3545' ][index]} />
@@ -56,12 +73,21 @@ const AnalyticsPage = ({ meta, analytics }) => {
         {/* Chart 2: Links per ISP */}
         <div className="summary-card" style={{ minHeight: '400px' }}>
           <h3>Link Count by ISP</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={ispData.slice(0, 10)} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-              <XAxis type="number" />
-              <YAxis type="category" dataKey="name" width={100} tick={{fontSize: 12}} />
-              <Tooltip />
-              <Bar dataKey="total" fill="#0d6efd" radius={[0, 4, 4, 0]} />
+          {/* Increased height slightly to give bars room */}
+          <ResponsiveContainer width="100%" height={ispData.length * 50 > 300 ? ispData.length * 50 : 300}>
+            <BarChart 
+              data={ispData.slice(0, 10)} 
+              layout="vertical" 
+              margin={{ top: 5, right: 40, left: 20, bottom: 5 }} // Added right margin for labels
+            >
+              <XAxis type="number" hide /> {/* Hiding bottom numbers to clean it up */}
+              {/* Increased width to 150 to accommodate longer ISP names */}
+              <YAxis type="category" dataKey="name" width={140} tick={{fontSize: 12}} />
+              <Tooltip cursor={{fill: 'transparent'}} />
+              <Bar dataKey="total" fill="#0d6efd" radius={[0, 4, 4, 0]} barSize={30}>
+                {/* Shows value permanently on the right of the bar */}
+                <LabelList dataKey="total" position="right" style={{ fill: '#666', fontSize: '12px', fontWeight: 'bold' }} />
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
