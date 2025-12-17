@@ -231,9 +231,15 @@ function App() {
               onEdgeClick={setSelectedEdge}
             />
           )}
+          
           {currentPage === 'analytics' && (
-            <AnalyticsPage meta={data?.meta} analytics={data?.analytics} />
+            <AnalyticsPage 
+              meta={data?.meta} 
+              analytics={data?.analytics} 
+              edges={data?.edges || []} /* <--- Added edges prop here */
+            />
           )}
+          
           {currentPage === 'isp-monitor' && (
             <IspMonitorPage analytics={data?.analytics} />
           )}
