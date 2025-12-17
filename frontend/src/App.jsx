@@ -180,7 +180,9 @@ function App() {
     };
   }, [startSSE]);
 
-  // --- Rendering ---
+  // --- Processing Lists & Counts ---
+  
+  // 1. Filter main data based on Search Query
   const filteredEdges = data?.edges.filter(edge => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return true;
@@ -190,9 +192,32 @@ function App() {
     );
   }) || [];
 
-  const connected = filteredEdges.filter(e => e.classification === 'connected').sort(sortByName);
-  const partial = filteredEdges.filter(e => e.classification === 'partial').sort(sortByName);
-  const offline = filteredEdges.filter(e => e.classification === 'offline').sort(sortByName);
+  // 2. Define Lists based on User Requirements
+  
+  // CONNECTED: All edges where edge_state is 'CONNECTED' (Ignores 'partial' classification status)
+  const connected = filteredEdges
+    .filter(e => (e.edge_state || '').toUpperCase() === 'CONNECTED')
+    .sort(sortByName);
+
+  // OFFLINE: All edges where edge_state is 'OFFLINE'
+  const offline = filteredEdges
+    .filter(e => (e.edge_state || '').toUpperCase() === 'OFFLINE')
+    .sort(sortByName);
+
+  // PARTIAL: Keep existing logic (subset of connected with issues)
+  const partial = filteredEdges
+    .filter(e => e.classification === 'partial')
+    .sort(sortByName);
+
+  // 3. Calculate Custom Meta for Dashboard
+  // Total = Connected + Offline. (Partial is not added to the sum)
+  const dashboardMeta = {
+    total: connected.length + offline.length,
+    connected: connected.length,
+    offline: offline.length,
+    partial: partial.length,
+    fetchedAt: data?.meta?.fetchedAt // Preserve timestamp
+  };
 
   return (
     <div className="app-layout">
@@ -224,7 +249,7 @@ function App() {
         <main className="container">
           {currentPage === 'dashboard' && (
             <DashboardPage
-              meta={data?.meta}
+              meta={dashboardMeta}  /* <-- Passing the custom calculated meta */
               connected={connected}
               partial={partial}
               offline={offline}
@@ -236,7 +261,7 @@ function App() {
             <AnalyticsPage 
               meta={data?.meta} 
               analytics={data?.analytics} 
-              edges={data?.edges || []} /* <--- Added edges prop here */
+              edges={data?.edges || []} 
             />
           )}
           
