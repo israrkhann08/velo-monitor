@@ -15,38 +15,36 @@ import {
 import SummaryCard from './SummaryCard';
 import EdgeList from './EdgeList';
 
-const AnalyticsPage = ({ meta, analytics, edges }) => {
+const AnalyticsPage = ({ meta, analytics, edges, onEdgeClick }) => {
   const [selectedStatus, setSelectedStatus] = useState(null);
-  const [drillDownType, setDrillDownType] = useState('health'); // 'health' or 'status'
+  const [selectedIsp, setSelectedIsp] = useState(null); // NEW
+  const [drillDownType, setDrillDownType] = useState('health'); // 'health', 'status', or 'isp'
 
   if (!meta || !analytics) return <div className="placeholder-page">Loading Analytics...</div>;
 
-  // --- DATA PREPARATION ---
-  // 1. Original Health Data
+  // --- DATA ---
   const healthData = [
     { name: 'Connected', value: meta.connected, color: '#198754', key: 'connected' },
     { name: 'Partial', value: meta.partial, color: '#ffc107', key: 'partial' },
     { name: 'Offline', value: meta.offline, color: '#dc3545', key: 'offline' },
   ];
 
-  // 2. Strict Connection Data (Matches App.jsx logic)
-  const connectedCount = edges ? edges.filter(e => (e.edge_state || '').toUpperCase() === 'CONNECTED').length : 0;
-  const offlineCount = edges ? edges.filter(e => (e.edge_state || '').toUpperCase() === 'OFFLINE').length : 0;
+  const connectedCount = edges?.filter(e => (e.edge_state || '').toUpperCase() === 'CONNECTED').length || 0;
+  const offlineCount = edges?.filter(e => (e.edge_state || '').toUpperCase() === 'OFFLINE').length || 0;
   const connectionStatusData = [
     { name: 'Connected', value: connectedCount, color: '#198754', key: 'connected_strict' },
     { name: 'Offline', value: offlineCount, color: '#dc3545', key: 'offline_strict' },
   ];
 
-  // 3. ISP Data - Ensure 'total' exists for calculations
   const ispData = (analytics.ispStats || []).map(item => ({
     ...item,
-    total: item.total || (item.stable + item.unstable) // Fallback calculation
+    total: item.total || (item.stable + item.unstable)
   }));
 
-  // --- CUSTOM PIE LABEL (unchanged) ---
+  // --- PIE LABEL ---
   const RADIAN = Math.PI / 180;
   const renderPieLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, value, name }) => {
-    if (percent < 0.05) return null; 
+    if (percent < 0.05) return null;
     const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
     const x = cx + radius * Math.cos(-midAngle * RADIAN);
     const y = cy + radius * Math.sin(-midAngle * RADIAN);
@@ -58,47 +56,76 @@ const AnalyticsPage = ({ meta, analytics, edges }) => {
     );
   };
 
-  // --- ACTIONS ---
+  // --- HANDLERS ---
   const handlePieClick = (data, type) => {
-    if (data && data.key) {
-      setDrillDownType(type);
+    if (data?.key) {
       setSelectedStatus(data.key);
+      setSelectedIsp(null);
+      setDrillDownType(type);
     }
   };
 
+  const handleIspBarClick = (data) => {
+    if (data?.name) {
+      setSelectedIsp(data.name);
+      setSelectedStatus(null);
+      setDrillDownType('isp');
+    }
+  };
+
+  // --- FILTER EDGES ---
   const getFilteredEdges = () => {
-    if (!edges || !selectedStatus) return [];
-    if (drillDownType === 'health') {
+    if (!edges) return [];
+
+    if (drillDownType === 'isp' && selectedIsp) {
+      return edges.filter(edge =>
+        edge.links?.some(link => link.isp === selectedIsp)
+      );
+    }
+
+    if (drillDownType === 'health' && selectedStatus) {
       if (selectedStatus === 'connected') return edges.filter(e => e.classification === 'connected');
       if (selectedStatus === 'partial') return edges.filter(e => e.classification === 'partial');
       if (selectedStatus === 'offline') return edges.filter(e => e.classification === 'offline');
     }
-    if (drillDownType === 'status') {
+
+    if (drillDownType === 'status' && selectedStatus) {
       if (selectedStatus === 'connected_strict') return edges.filter(e => (e.edge_state || '').toUpperCase() === 'CONNECTED');
       if (selectedStatus === 'offline_strict') return edges.filter(e => (e.edge_state || '').toUpperCase() === 'OFFLINE');
     }
+
     return [];
   };
 
-  const modalTitleMap = {
-    'connected': 'Healthy / Connected Edges',
-    'partial': 'Partial / Degraded Edges',
-    'offline': 'Offline Edges',
-    'connected_strict': 'All Connected Edges',
-    'offline_strict': 'All Offline Edges'
+  const getModalTitle = () => {
+    if (drillDownType === 'isp') {
+      return `Edges using ISP: ${selectedIsp}`;
+    }
+    const map = {
+      'connected': 'Healthy / Connected Edges',
+      'partial': 'Partial / Degraded Edges',
+      'offline': 'Offline Edges',
+      'connected_strict': 'All Connected Edges',
+      'offline_strict': 'All Offline Edges'
+    };
+    return map[selectedStatus] || 'Edges';
+  };
+
+  const closeModal = () => {
+    setSelectedStatus(null);
+    setSelectedIsp(null);
   };
 
   return (
     <div id="analytics-page" className="page">
-      {/* Top Cards */}
       <section className="summary-grid">
-        <SummaryCard title="Total Edges" value={meta.total} />
-        <SummaryCard title="Total Links Tracked" value={ispData.reduce((acc, curr) => acc + curr.total, 0)} />
+        <SummaryCard title="Total Edges" value={meta.total ?? 0} />
+        <SummaryCard title="Total Links Tracked" value={ispData.reduce((sum, isp) => sum + (isp.total || 0), 0)} />
         <SummaryCard title="Last Updated" value={new Date(meta.fetchedAt).toLocaleTimeString()} />
       </section>
 
       <div className="analytics-charts-grid">
-        {/* Chart 1: Edge Health (Existing) */}
+        {/* Chart 1 */}
         <div className="summary-card" style={{ minHeight: '400px' }}>
           <h3>Edge Health Distribution</h3>
           <p style={{ fontSize: '12px', color: '#6c757d', marginBottom: '10px' }}>
@@ -116,19 +143,19 @@ const AnalyticsPage = ({ meta, analytics, edges }) => {
                 innerRadius={50}
                 dataKey="value"
                 onClick={(data) => handlePieClick(data, 'health')}
-                style={{ cursor: 'pointer' }}
+                cursor="pointer"
               >
-                {healthData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} stroke="#fff" />
+                {healthData.map((entry, i) => (
+                  <Cell key={`cell-${i}`} fill={entry.color} stroke="#fff" />
                 ))}
               </Pie>
               <Tooltip formatter={(value, name) => [value, `${name} Edges`]} />
-              <Legend verticalAlign="bottom" height={36}/>
+              <Legend verticalAlign="bottom" height={36} />
             </PieChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Chart 2: NEW Strict Overview */}
+        {/* Chart 2 */}
         <div className="summary-card" style={{ minHeight: '400px' }}>
           <h3>Edge Status Overview</h3>
           <p style={{ fontSize: '12px', color: '#6c757d', marginBottom: '10px' }}>
@@ -146,79 +173,52 @@ const AnalyticsPage = ({ meta, analytics, edges }) => {
                 innerRadius={50}
                 dataKey="value"
                 onClick={(data) => handlePieClick(data, 'status')}
-                style={{ cursor: 'pointer' }}
+                cursor="pointer"
               >
-                {connectionStatusData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} stroke="#fff" />
+                {connectionStatusData.map((entry, i) => (
+                  <Cell key={`cell-${i}`} fill={entry.color} stroke="#fff" />
                 ))}
               </Pie>
               <Tooltip formatter={(value, name) => [value, `${name} Edges`]} />
-              <Legend verticalAlign="bottom" height={36}/>
+              <Legend verticalAlign="bottom" height={36} />
             </PieChart>
           </ResponsiveContainer>
         </div>
 
-        {/* ✅ Chart 3: Enhanced Link Count by ISP */}
+        {/* ✅ Chart 3: ISP — Now CLICKABLE */}
         <div className="summary-card" style={{ minHeight: '400px', gridColumn: '1 / -1' }}>
           <h3>Link Count by ISP</h3>
-          <ResponsiveContainer width="100%" height={ispData.length * 50 > 300 ? ispData.length * 50 : 300}>
-            <BarChart 
-              data={ispData.slice(0, 15)} 
-              layout="vertical" 
-              margin={{ top: 5, right: 100, left: 10, bottom: 5 }} 
+          <ResponsiveContainer width="100%" height={Math.max(300, ispData.length * 50)}>
+            <BarChart
+              data={ispData.slice(0, 15)}
+              layout="vertical"
+              margin={{ top: 5, right: 100, left: 10, bottom: 5 }}
+              onClick={(state) => {
+                if (state.activePayload?.[0]?.payload) {
+                  handleIspBarClick(state.activePayload[0].payload);
+                }
+              }}
             >
-              <XAxis type="number" />
+              <XAxis type="number" hide />
               <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 12 }} />
               <Tooltip cursor={{ fill: 'transparent' }} />
               <Legend verticalAlign="top" height={36} />
 
-              {/* Stable Bar */}
-              <Bar 
-                dataKey="stable" 
-                name="Stable" 
-                stackId="a" 
-                fill="#198754" 
-                barSize={30}
-              >
-                <LabelList 
-                  dataKey="stable" 
-                  position="insideLeft" 
-                  fill="#fff" 
-                  fontWeight="bold" 
-                  fontSize={12}
-                />
+              <Bar dataKey="stable" name="Stable" stackId="a" fill="#198754" barSize={30}>
+                <LabelList dataKey="stable" position="insideLeft" fill="#fff" fontWeight="bold" fontSize={12} />
               </Bar>
 
-              {/* Unstable Bar */}
-              <Bar 
-                dataKey="unstable" 
-                name="Unstable" 
-                stackId="a" 
-                fill="#dc3545" 
-                barSize={30}
-              >
-                <LabelList 
-                  dataKey="unstable" 
-                  position="insideRight" 
-                  fill="#fff" 
-                  fontWeight="bold" 
-                  fontSize={12}
-                />
+              <Bar dataKey="unstable" name="Unstable" stackId="a" fill="#dc3545" barSize={30}>
+                <LabelList dataKey="unstable" position="insideRight" fill="#fff" fontWeight="bold" fontSize={12} />
               </Bar>
 
-              {/* Total Label (Blue, to the right) */}
-              <Bar 
-                dataKey="total" 
-                name="Total" 
-                fill="transparent" 
-                barSize={0}
-              >
-                <LabelList 
-                  dataKey="total" 
-                  position="right" 
-                  fill="#0d6efd" 
-                  fontWeight="bold" 
-                  fontSize={15}
+              <Bar dataKey="total" fill="transparent" barSize={0}>
+                <LabelList
+                  dataKey="total"
+                  position="right"
+                  fill="#0d6efd"
+                  fontWeight="bold"
+                  fontSize={13}
                   formatter={(value) => `Total: ${value}`}
                 />
               </Bar>
@@ -227,16 +227,16 @@ const AnalyticsPage = ({ meta, analytics, edges }) => {
         </div>
       </div>
 
-      {/* Drill-down Modal */}
-      {selectedStatus && (
-        <div className="modal" onClick={() => setSelectedStatus(null)}>
-          <div className="modal-inner" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
-            <button className="close-btn" onClick={() => setSelectedStatus(null)}>✕</button>
-            <EdgeList 
-              title={modalTitleMap[selectedStatus] || 'Edges'}
-              status={selectedStatus.includes('offline') ? 'offline' : selectedStatus.includes('partial') ? 'partial' : 'connected'}
+      {/* Modal */}
+      {(selectedStatus || selectedIsp) && (
+        <div className="modal" onClick={closeModal}>
+          <div className="modal-inner" onClick={e => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+            <button className="close-btn" onClick={closeModal}>✕</button>
+            <EdgeList
+              title={getModalTitle()}
+              status={drillDownType === 'isp' ? 'all' : selectedStatus?.includes('offline') ? 'offline' : selectedStatus?.includes('partial') ? 'partial' : 'connected'}
               edges={getFilteredEdges()}
-              onEdgeClick={() => {}} 
+              onEdgeClick={onEdgeClick} // ✅ Pass through to open DetailsModal
             />
             {getFilteredEdges().length === 0 && (
               <p style={{ padding: '20px', textAlign: 'center', color: '#666' }}>No edges found.</p>

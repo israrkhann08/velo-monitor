@@ -1,3 +1,4 @@
+// src/App.jsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -21,10 +22,8 @@ function App() {
   const [notifications, setNotifications] = useState([]);
   const [isNotifListVisible, setNotifListVisible] = useState(false);
   const [toasts, setToasts] = useState([]);
-
   // Mobile Menu State
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-
   // Refs for audio elements and SSE connection
   const sounds = useRef({});
   const sseRef = useRef(null);
@@ -88,18 +87,14 @@ function App() {
   const processStateChanges = useCallback((newData, oldData) => {
     if (!oldData || !oldData.edges) return;
     const oldEdgesMap = new Map(oldData.edges.map(e => [e.edge_id, e]));
-
     newData.edges.forEach(newEdge => {
       const oldEdge = oldEdgesMap.get(newEdge.edge_id);
       if (!oldEdge || oldEdge.classification === newEdge.classification) return;
-
       const { edge_name, classification: newStatus } = newEdge;
       const { classification: oldStatus } = oldEdge;
-
       let message = '';
       let type = '';
       let sound = '';
-
       if (newStatus === 'offline') {
         message = `🔴 Edge "${edge_name}" went OFFLINE.`;
         type = 'error';
@@ -113,7 +108,6 @@ function App() {
         type = 'success';
         sound = 'connected';
       }
-
       if (message) {
         addNotification(message, type);
         addToast(message, type);
@@ -181,8 +175,6 @@ function App() {
   }, [startSSE]);
 
   // --- Processing Lists & Counts ---
-  
-  // 1. Filter main data based on Search Query
   const filteredEdges = data?.edges.filter(edge => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return true;
@@ -192,48 +184,37 @@ function App() {
     );
   }) || [];
 
-  // 2. Define Lists based on User Requirements
-  
-  // CONNECTED: All edges where edge_state is 'CONNECTED' (Ignores 'partial' classification status)
   const connected = filteredEdges
     .filter(e => (e.edge_state || '').toUpperCase() === 'CONNECTED')
     .sort(sortByName);
 
-  // OFFLINE: All edges where edge_state is 'OFFLINE'
   const offline = filteredEdges
     .filter(e => (e.edge_state || '').toUpperCase() === 'OFFLINE')
     .sort(sortByName);
 
-  // PARTIAL: Keep existing logic (subset of connected with issues)
   const partial = filteredEdges
     .filter(e => e.classification === 'partial')
     .sort(sortByName);
 
-  // 3. Calculate Custom Meta for Dashboard
-  // Total = Connected + Offline. (Partial is not added to the sum)
   const dashboardMeta = {
     total: connected.length + offline.length,
     connected: connected.length,
     offline: offline.length,
     partial: partial.length,
-    fetchedAt: data?.meta?.fetchedAt // Preserve timestamp
+    fetchedAt: data?.meta?.fetchedAt
   };
 
   return (
     <div className="app-layout">
-      {/* Sidebar with Mobile Props */}
       <Sidebar 
         currentPage={currentPage} 
         setCurrentPage={handlePageChange}
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
       />
-      
-      {/* Mobile Overlay */}
       {isMobileMenuOpen && (
         <div className="sidebar-overlay" onClick={() => setIsMobileMenuOpen(false)} />
       )}
-      
       <div className="main-content">
         <Header
           currentPage={currentPage}
@@ -245,38 +226,33 @@ function App() {
           setNotifListVisible={setNotifListVisible}
           onToggleMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         />
-        
         <main className="container">
           {currentPage === 'dashboard' && (
             <DashboardPage
-              meta={dashboardMeta}  /* <-- Passing the custom calculated meta */
+              meta={dashboardMeta}
               connected={connected}
               partial={partial}
               offline={offline}
               onEdgeClick={setSelectedEdge}
             />
           )}
-          
           {currentPage === 'analytics' && (
             <AnalyticsPage 
               meta={data?.meta} 
               analytics={data?.analytics} 
               edges={data?.edges || []} 
+              onEdgeClick={setSelectedEdge} // ✅ THIS IS THE ONLY CHANGE
             />
           )}
-          
           {currentPage === 'isp-monitor' && (
             <IspMonitorPage analytics={data?.analytics} />
           )}
         </main>
-        
         <footer className="footer">
           <small>Dashboard — last updated: <span id="updated-at">{data ? new Date(data.meta.fetchedAt).toLocaleString() : '—'}</span></small>
         </footer>
       </div>
-
       {selectedEdge && <DetailsModal edge={selectedEdge} onClose={() => setSelectedEdge(null)} />}
-      
       <div id="toast-container">
         {toasts.map(toast => <Toast key={toast.id} message={toast.message} type={toast.type} />)}
       </div>
