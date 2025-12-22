@@ -1,5 +1,5 @@
 import React from 'react';
-import { DashboardIcon, AnalyticsIcon, VeloCloudIcon, GraphIcon, CloseIcon } from './Icons';
+import { DashboardIcon, AnalyticsIcon, VeloCloudIcon, GraphIcon, CloseIcon, BellIcon } from './Icons';
 
 const Sidebar = ({ currentPage, setCurrentPage, isOpen, onClose }) => {
   const handleNavClick = (e, page) => {
@@ -40,6 +40,12 @@ const Sidebar = ({ currentPage, setCurrentPage, isOpen, onClose }) => {
             <span className="nav-text">ISP Monitor</span>
           </a>
         </li>
+        <li>
+          <a href="#" className={`nav-link ${currentPage === 'alerts' ? 'active' : ''}`} onClick={(e) => handleNavClick(e, 'alerts')}>
+            <BellIcon />
+            <span className="nav-text">Alerts</span>
+          </a>
+       </li>
       </ul>
     </nav>
   );

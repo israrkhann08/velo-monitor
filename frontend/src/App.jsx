@@ -5,6 +5,7 @@ import Header from './components/Header';
 import DashboardPage from './components/DashboardPage';
 import AnalyticsPage from './components/AnalyticsPage';
 import IspMonitorPage from './components/IspMonitorPage';
+import AlertsPage from './components/AlertsPage';
 import DetailsModal from './components/DetailsModal';
 import Toast from './components/Toast';
 
@@ -22,23 +23,26 @@ function App() {
   const [notifications, setNotifications] = useState([]);
   const [isNotifListVisible, setNotifListVisible] = useState(false);
   const [toasts, setToasts] = useState([]);
-  // Mobile Menu State
+  const [incidents, setIncidents] = useState([]);
+
+  // Mobile menu
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  // Refs for audio elements and SSE connection
+
+  // Refs
   const sounds = useRef({});
   const sseRef = useRef(null);
   const fallbackIntervalRef = useRef(null);
   const isAudioUnlocked = useRef(false);
-  const dataRef = useRef(); 
+  const dataRef = useRef();
   dataRef.current = data;
 
-  // Handle navigation change (close menu on mobile)
+  // Navigation
   const handlePageChange = (page) => {
     setCurrentPage(page);
     setIsMobileMenuOpen(false);
   };
 
-  // --- Audio Handling ---
+  // ---------------- Audio ----------------
   const unlockAudio = () => {
     if (isAudioUnlocked.current) return;
     Object.values(sounds.current).forEach(sound => {
@@ -52,7 +56,7 @@ function App() {
   const playSound = (type) => {
     if (!isAudioUnlocked.current || !sounds.current[type]) return;
     sounds.current[type].currentTime = 0;
-    sounds.current[type].play().catch(e => console.warn("Audio play failed:", e));
+    sounds.current[type].play().catch(() => {});
   };
 
   useEffect(() => {
@@ -69,7 +73,7 @@ function App() {
     };
   }, []);
 
-  // --- Notifications ---
+  // ---------------- Notifications ----------------
   const addToast = (message, type) => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
@@ -83,81 +87,84 @@ function App() {
     setNotifications(prev => [notif, ...prev.slice(0, 49)]);
   };
 
-  // --- State Change Processing ---
+  // ---------------- State Change Processing ----------------
   const processStateChanges = useCallback((newData, oldData) => {
-    if (!oldData || !oldData.edges) return;
-    const oldEdgesMap = new Map(oldData.edges.map(e => [e.edge_id, e]));
+    if (!oldData?.edges) return;
+
+    const oldMap = new Map(oldData.edges.map(e => [e.edge_id, e]));
+    const now = Date.now();
+
     newData.edges.forEach(newEdge => {
-      const oldEdge = oldEdgesMap.get(newEdge.edge_id);
+      const oldEdge = oldMap.get(newEdge.edge_id);
       if (!oldEdge || oldEdge.classification === newEdge.classification) return;
-      const { edge_name, classification: newStatus } = newEdge;
-      const { classification: oldStatus } = oldEdge;
+
+      const oldStatus = oldEdge.classification;
+      const newStatus = newEdge.classification;
+
       let message = '';
       let type = '';
       let sound = '';
+
       if (newStatus === 'offline') {
-        message = `🔴 Edge "${edge_name}" went OFFLINE.`;
+        message = `🔴 Edge "${newEdge.edge_name}" went OFFLINE.`;
         type = 'error';
         sound = 'offline';
       } else if (newStatus === 'partial' && oldStatus === 'connected') {
-        message = `🟡 Edge "${edge_name}" is now PARTIAL/DEGRADED.`;
+        message = `🟡 Edge "${newEdge.edge_name}" is DEGRADED.`;
         type = 'warning';
         sound = 'partial';
       } else if (newStatus === 'connected' && oldStatus !== 'connected') {
-        message = `🟢 Edge "${edge_name}" is back CONNECTED.`;
+        message = `🟢 Edge "${newEdge.edge_name}" recovered.`;
         type = 'success';
         sound = 'connected';
       }
+
       if (message) {
         addNotification(message, type);
         addToast(message, type);
         playSound(sound);
+
+        setIncidents(prev => {
+          const updated = [...prev];
+
+          // Calculate duration on recovery
+          if (newStatus === 'connected' && oldStatus === 'offline') {
+            const lastOffline = [...updated].reverse().find(
+              i => i.edge_id === newEdge.edge_id && i.new === 'offline'
+            );
+            if (lastOffline && !lastOffline.duration) {
+              lastOffline.duration = `${Math.round(
+                (now - new Date(lastOffline.time)) / 60000
+              )} min`;
+            }
+          }
+
+          updated.unshift({
+            edge_id: newEdge.edge_id,
+            edge_name: newEdge.edge_name,
+            old: oldStatus,
+            new: newStatus,
+            time: new Date().toISOString(),
+            duration: null
+          });
+
+          return updated.slice(0, 200);
+        });
       }
     });
   }, []);
 
-  // --- Data Fetching ---
+  // ---------------- Data Fetching ----------------
   const fetchData = useCallback(async () => {
     try {
       const res = await fetch('/api/edges');
-      if (!res.ok) throw new Error(`Status ${res.status}`);
+      if (!res.ok) throw new Error(res.status);
       const newData = await res.json();
       processStateChanges(newData, dataRef.current);
       setData(newData);
-    } catch (e) {
-      console.error('Fetch failed:', e);
+    } catch {
       addToast('Failed to load data.', 'error');
     }
-  }, [processStateChanges]);
-
-  const startSSE = useCallback(() => {
-    if (!window.EventSource) {
-      startFallbackPolling();
-      return;
-    }
-    sseRef.current = new EventSource('/events');
-    sseRef.current.onopen = () => {
-      if (fallbackIntervalRef.current) {
-        clearInterval(fallbackIntervalRef.current);
-        fallbackIntervalRef.current = null;
-      }
-    };
-    sseRef.current.onmessage = (ev) => {
-      try {
-        const newData = JSON.parse(ev.data);
-        if (newData.type !== 'ping') {
-          processStateChanges(newData, dataRef.current);
-          setData(newData);
-        }
-      } catch (err) {
-        console.error('SSE data parse failed', err);
-      }
-    };
-    sseRef.current.onerror = (err) => {
-      sseRef.current?.close();
-      sseRef.current = null;
-      startFallbackPolling();
-    };
   }, [processStateChanges]);
 
   const startFallbackPolling = useCallback(() => {
@@ -165,6 +172,31 @@ function App() {
     fetchData();
     fallbackIntervalRef.current = setInterval(fetchData, 30000);
   }, [fetchData]);
+
+  const startSSE = useCallback(() => {
+    if (!window.EventSource) {
+      startFallbackPolling();
+      return;
+    }
+
+    sseRef.current = new EventSource('/events');
+
+    sseRef.current.onmessage = (ev) => {
+      try {
+        const newData = JSON.parse(ev.data);
+        if (newData.type !== 'ping') {
+          processStateChanges(newData, dataRef.current);
+          setData(newData);
+        }
+      } catch {}
+    };
+
+    sseRef.current.onerror = () => {
+      sseRef.current?.close();
+      sseRef.current = null;
+      startFallbackPolling();
+    };
+  }, [processStateChanges, startFallbackPolling]);
 
   useEffect(() => {
     startSSE();
@@ -174,27 +206,21 @@ function App() {
     };
   }, [startSSE]);
 
-  // --- Processing Lists & Counts ---
+  // ---------------- Derived Data ----------------
   const filteredEdges = data?.edges.filter(edge => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return true;
-    if ((edge.edge_name || "").toLowerCase().includes(q)) return true;
-    return edge.links.some(
-      l => (l.isp || "").toLowerCase().includes(q) || (l.interface || "").toLowerCase().includes(q)
+    if ((edge.edge_name || '').toLowerCase().includes(q)) return true;
+    return edge.links?.some(
+      l =>
+        (l.isp || '').toLowerCase().includes(q) ||
+        (l.interface || '').toLowerCase().includes(q)
     );
   }) || [];
 
-  const connected = filteredEdges
-    .filter(e => (e.edge_state || '').toUpperCase() === 'CONNECTED')
-    .sort(sortByName);
-
-  const offline = filteredEdges
-    .filter(e => (e.edge_state || '').toUpperCase() === 'OFFLINE')
-    .sort(sortByName);
-
-  const partial = filteredEdges
-    .filter(e => e.classification === 'partial')
-    .sort(sortByName);
+  const connected = filteredEdges.filter(e => e.edge_state === 'CONNECTED').sort(sortByName);
+  const offline = filteredEdges.filter(e => e.edge_state === 'OFFLINE').sort(sortByName);
+  const partial = filteredEdges.filter(e => e.classification === 'partial').sort(sortByName);
 
   const dashboardMeta = {
     total: connected.length + offline.length,
@@ -204,17 +230,20 @@ function App() {
     fetchedAt: data?.meta?.fetchedAt
   };
 
+  // ---------------- Render ----------------
   return (
     <div className="app-layout">
-      <Sidebar 
-        currentPage={currentPage} 
+      <Sidebar
+        currentPage={currentPage}
         setCurrentPage={handlePageChange}
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
       />
+
       {isMobileMenuOpen && (
         <div className="sidebar-overlay" onClick={() => setIsMobileMenuOpen(false)} />
       )}
+
       <div className="main-content">
         <Header
           currentPage={currentPage}
@@ -226,6 +255,7 @@ function App() {
           setNotifListVisible={setNotifListVisible}
           onToggleMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         />
+
         <main className="container">
           {currentPage === 'dashboard' && (
             <DashboardPage
@@ -236,25 +266,41 @@ function App() {
               onEdgeClick={setSelectedEdge}
             />
           )}
+
           {currentPage === 'analytics' && (
-            <AnalyticsPage 
-              meta={data?.meta} 
-              analytics={data?.analytics} 
-              edges={data?.edges || []} 
-              onEdgeClick={setSelectedEdge} // ✅ THIS IS THE ONLY CHANGE
+            <AnalyticsPage
+              meta={data?.meta}
+              analytics={data?.analytics}
+              edges={data?.edges || []}
+              onEdgeClick={setSelectedEdge}
             />
           )}
+
           {currentPage === 'isp-monitor' && (
             <IspMonitorPage analytics={data?.analytics} />
           )}
+
+          {currentPage === 'alerts' && (
+            <AlertsPage incidents={incidents} />
+          )}
         </main>
+
         <footer className="footer">
-          <small>Dashboard — last updated: <span id="updated-at">{data ? new Date(data.meta.fetchedAt).toLocaleString() : '—'}</span></small>
+          <small>
+            Dashboard — last updated:{' '}
+            {data ? new Date(data.meta.fetchedAt).toLocaleString() : '—'}
+          </small>
         </footer>
       </div>
-      {selectedEdge && <DetailsModal edge={selectedEdge} onClose={() => setSelectedEdge(null)} />}
+
+      {selectedEdge && (
+        <DetailsModal edge={selectedEdge} onClose={() => setSelectedEdge(null)} />
+      )}
+
       <div id="toast-container">
-        {toasts.map(toast => <Toast key={toast.id} message={toast.message} type={toast.type} />)}
+        {toasts.map(t => (
+          <Toast key={t.id} message={t.message} type={t.type} />
+        ))}
       </div>
     </div>
   );
