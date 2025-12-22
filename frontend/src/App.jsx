@@ -6,7 +6,8 @@ import DashboardPage from './components/DashboardPage';
 import AnalyticsPage from './components/AnalyticsPage';
 import IspMonitorPage from './components/IspMonitorPage';
 import AlertsPage from './components/AlertsPage';
-import EdgeHistoryPage from './components/EdgeHistoryPage'; // ✅ New Import
+import EdgeHistoryPage from './components/EdgeHistoryPage';
+import SystemHealthPage from './components/SystemHealthPage'; // ✅ New Import
 import DetailsModal from './components/DetailsModal';
 import Toast from './components/Toast';
 
@@ -17,52 +18,58 @@ const sortByName = (a, b) => {
 };
 
 function App() {
+  // ---------------- Navigation State ----------------
   const [currentPage, setCurrentPage] = useState('dashboard');
-  
-  // ✅ New State for History View
-  const [historyEdge, setHistoryEdge] = useState(null);
+  const [historyEdge, setHistoryEdge] = useState(null); // For Edge History Page
 
+  // ---------------- Data State ----------------
   const [data, setData] = useState(null);
+  const [incidents, setIncidents] = useState([]);
+  const [selectedEdge, setSelectedEdge] = useState(null); // For Details Modal
+
+  // ---------------- UI State ----------------
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedEdge, setSelectedEdge] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [isNotifListVisible, setNotifListVisible] = useState(false);
   const [toasts, setToasts] = useState([]);
-  const [incidents, setIncidents] = useState([]);
-
-  // Mobile menu
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Refs
+  // ---------------- System Health State (✅ NEW) ----------------
+  const [health, setHealth] = useState({
+    sseStatus: 'CONNECTING', // CONNECTED, DISCONNECTED, CONNECTING
+    backendStatus: 'UNKNOWN', // ONLINE, OFFLINE
+    latency: 0,
+    isPolling: false,
+    lastCheck: null
+  });
+
+  // ---------------- Refs ----------------
   const sounds = useRef({});
   const sseRef = useRef(null);
   const fallbackIntervalRef = useRef(null);
   const isAudioUnlocked = useRef(false);
   const dataRef = useRef();
-  dataRef.current = data;
+  dataRef.current = data; // Keep track of old data for diffing
 
   // ---------------- Navigation Handlers ----------------
-
   const handlePageChange = (page) => {
     setCurrentPage(page);
     setIsMobileMenuOpen(false);
-    setHistoryEdge(null); // Reset specific edge history when switching main tabs
+    setHistoryEdge(null); // Reset drill-down when changing main tabs
   };
 
-  // ✅ Switch to History Page from Modal
   const handleViewHistory = (edge) => {
-    setSelectedEdge(null); // Close the modal
-    setHistoryEdge(edge);  // Set the specific edge data
-    setCurrentPage('edge-history'); // Change the view
+    setSelectedEdge(null); // Close modal
+    setHistoryEdge(edge);  // Set target edge
+    setCurrentPage('edge-history'); // Switch view
   };
 
-  // ✅ Back button from History Page
   const handleBackToDash = () => {
     setHistoryEdge(null);
     setCurrentPage('dashboard');
   };
 
-  // ---------------- Audio ----------------
+  // ---------------- Audio System ----------------
   const unlockAudio = () => {
     if (isAudioUnlocked.current) return;
     Object.values(sounds.current).forEach(sound => {
@@ -107,7 +114,7 @@ function App() {
     setNotifications(prev => [notif, ...prev.slice(0, 49)]);
   };
 
-  // ---------------- State Change Processing ----------------
+  // ---------------- Logic: State Changes ----------------
   const processStateChanges = useCallback((newData, oldData) => {
     if (!oldData?.edges) return;
 
@@ -146,19 +153,15 @@ function App() {
 
         setIncidents(prev => {
           const updated = [...prev];
-
-          // Calculate duration on recovery
+          // Update duration of previous offline event if recovering
           if (newStatus === 'connected' && oldStatus === 'offline') {
             const lastOffline = [...updated].reverse().find(
               i => i.edge_id === newEdge.edge_id && i.new === 'offline'
             );
             if (lastOffline && !lastOffline.duration) {
-              lastOffline.duration = `${Math.round(
-                (now - new Date(lastOffline.time)) / 60000
-              )} min`;
+              lastOffline.duration = `${Math.round((now - new Date(lastOffline.time)) / 60000)} min`;
             }
           }
-
           updated.unshift({
             edge_id: newEdge.edge_id,
             edge_name: newEdge.edge_name,
@@ -167,32 +170,57 @@ function App() {
             time: new Date().toISOString(),
             duration: null
           });
-
           return updated.slice(0, 200);
         });
       }
     });
   }, []);
 
-  // ---------------- Data Fetching ----------------
+  // ---------------- Data Fetching (HTTP) ----------------
   const fetchData = useCallback(async () => {
+    const startTime = performance.now(); // ⏱ Measure Latency
     try {
       const res = await fetch('/api/edges');
       if (!res.ok) throw new Error(res.status);
       const newData = await res.json();
+      
+      const endTime = performance.now();
+      const latency = Math.round(endTime - startTime);
+
       processStateChanges(newData, dataRef.current);
       setData(newData);
-    } catch {
+
+      // ✅ Update Health: Success
+      setHealth(prev => ({
+        ...prev,
+        backendStatus: 'ONLINE',
+        latency: latency,
+        lastCheck: Date.now()
+      }));
+
+    } catch (err) {
+      // ❌ Update Health: Failure
+      setHealth(prev => ({
+        ...prev,
+        backendStatus: 'OFFLINE',
+        latency: 0,
+        lastCheck: Date.now()
+      }));
       addToast('Failed to load data.', 'error');
     }
   }, [processStateChanges]);
 
+  // ---------------- Polling Fallback ----------------
   const startFallbackPolling = useCallback(() => {
+    // Set status to Polling
+    setHealth(prev => ({ ...prev, isPolling: true, sseStatus: 'DISCONNECTED' }));
+
     if (fallbackIntervalRef.current) return;
     fetchData();
     fallbackIntervalRef.current = setInterval(fetchData, 30000);
   }, [fetchData]);
 
+  // ---------------- SSE Connection ----------------
   const startSSE = useCallback(() => {
     if (!window.EventSource) {
       startFallbackPolling();
@@ -201,32 +229,56 @@ function App() {
 
     sseRef.current = new EventSource('/events');
 
+    // ✅ Connection Opened
+    sseRef.current.onopen = () => {
+      setHealth(prev => ({ 
+        ...prev, 
+        sseStatus: 'CONNECTED', 
+        isPolling: false, 
+        backendStatus: 'ONLINE' 
+      }));
+      if (fallbackIntervalRef.current) {
+        clearInterval(fallbackIntervalRef.current);
+        fallbackIntervalRef.current = null;
+      }
+    };
+
+    // ✅ Message Received
     sseRef.current.onmessage = (ev) => {
       try {
         const newData = JSON.parse(ev.data);
-        if (newData.type !== 'ping') {
-          processStateChanges(newData, dataRef.current);
-          setData(newData);
+        if (newData.type === 'ping') {
+           return; // Heartbeat
         }
+        processStateChanges(newData, dataRef.current);
+        setData(newData);
+        setHealth(prev => ({ ...prev, lastCheck: Date.now() }));
       } catch {}
     };
 
+    // ❌ Connection Error
     sseRef.current.onerror = () => {
       sseRef.current?.close();
       sseRef.current = null;
+      setHealth(prev => ({ ...prev, sseStatus: 'DISCONNECTED' }));
       startFallbackPolling();
     };
   }, [processStateChanges, startFallbackPolling]);
 
   useEffect(() => {
+    // ✅ 1. Get initial snapshot & measure latency immediately
+    fetchData(); 
+
+    // ✅ 2. Then start the real-time subscription
     startSSE();
+    
     return () => {
       sseRef.current?.close();
       if (fallbackIntervalRef.current) clearInterval(fallbackIntervalRef.current);
     };
-  }, [startSSE]);
+  }, [startSSE, fetchData]);
 
-  // ---------------- Derived Data ----------------
+  // ---------------- Filtering ----------------
   const filteredEdges = data?.edges.filter(edge => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return true;
@@ -304,12 +356,17 @@ function App() {
             <AlertsPage incidents={incidents} />
           )}
 
-          {/* ✅ New Route: Edge History Page */}
+          {/* ✅ Edge History Page */}
           {currentPage === 'edge-history' && (
             <EdgeHistoryPage 
               edge={historyEdge} 
               onBack={handleBackToDash} 
             />
+          )}
+
+          {/* ✅ System Health Page */}
+          {currentPage === 'system-health' && (
+            <SystemHealthPage health={health} />
           )}
         </main>
 
@@ -321,14 +378,16 @@ function App() {
         </footer>
       </div>
 
+      {/* Details Modal */}
       {selectedEdge && (
         <DetailsModal 
           edge={selectedEdge} 
           onClose={() => setSelectedEdge(null)} 
-          onViewHistory={handleViewHistory} // ✅ Pass handler to Modal
+          onViewHistory={handleViewHistory} 
         />
       )}
 
+      {/* Toast Notifications */}
       <div id="toast-container">
         {toasts.map(t => (
           <Toast key={t.id} message={t.message} type={t.type} />
