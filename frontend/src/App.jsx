@@ -115,6 +115,7 @@ function App() {
   };
 
   // ---------------- Logic: State Changes ----------------
+  // ---------------- State Change Processing ----------------
   const processStateChanges = useCallback((newData, oldData) => {
     if (!oldData?.edges) return;
 
@@ -151,25 +152,44 @@ function App() {
         addToast(message, type);
         playSound(sound);
 
+        // 🚀 TRIGGER REMOTE ALERTS (If you added the backend)
+        if (type === 'error' || type === 'warning') {
+          // sendRemoteAlert(message, type); 
+        }
+
         setIncidents(prev => {
           const updated = [...prev];
-          // Update duration of previous offline event if recovering
+          let durationStr = null;
+
+          // ✅ Fix: Calculate duration when recovering
           if (newStatus === 'connected' && oldStatus === 'offline') {
-            const lastOffline = [...updated].reverse().find(
+            // Find the most recent 'offline' event for this edge
+            const lastOffline = updated.find(
               i => i.edge_id === newEdge.edge_id && i.new === 'offline'
             );
-            if (lastOffline && !lastOffline.duration) {
-              lastOffline.duration = `${Math.round((now - new Date(lastOffline.time)) / 60000)} min`;
+
+            if (lastOffline) {
+              const diffMs = now - new Date(lastOffline.time).getTime();
+              const diffMins = Math.round(diffMs / 60000);
+              
+              // Format: "10 min" or "< 1 min"
+              durationStr = diffMins < 1 ? '< 1 min' : `${diffMins} min`;
+              
+              // Optional: Update the old row too, so history looks complete
+              lastOffline.duration = durationStr;
             }
           }
+
+          // Add new incident to the TOP of the list
           updated.unshift({
             edge_id: newEdge.edge_id,
             edge_name: newEdge.edge_name,
             old: oldStatus,
             new: newStatus,
             time: new Date().toISOString(),
-            duration: null
+            duration: durationStr // ✅ Now the top row will show the duration
           });
+
           return updated.slice(0, 200);
         });
       }
