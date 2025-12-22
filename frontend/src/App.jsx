@@ -6,6 +6,7 @@ import DashboardPage from './components/DashboardPage';
 import AnalyticsPage from './components/AnalyticsPage';
 import IspMonitorPage from './components/IspMonitorPage';
 import AlertsPage from './components/AlertsPage';
+import EdgeHistoryPage from './components/EdgeHistoryPage'; // ✅ New Import
 import DetailsModal from './components/DetailsModal';
 import Toast from './components/Toast';
 
@@ -17,6 +18,10 @@ const sortByName = (a, b) => {
 
 function App() {
   const [currentPage, setCurrentPage] = useState('dashboard');
+  
+  // ✅ New State for History View
+  const [historyEdge, setHistoryEdge] = useState(null);
+
   const [data, setData] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEdge, setSelectedEdge] = useState(null);
@@ -36,10 +41,25 @@ function App() {
   const dataRef = useRef();
   dataRef.current = data;
 
-  // Navigation
+  // ---------------- Navigation Handlers ----------------
+
   const handlePageChange = (page) => {
     setCurrentPage(page);
     setIsMobileMenuOpen(false);
+    setHistoryEdge(null); // Reset specific edge history when switching main tabs
+  };
+
+  // ✅ Switch to History Page from Modal
+  const handleViewHistory = (edge) => {
+    setSelectedEdge(null); // Close the modal
+    setHistoryEdge(edge);  // Set the specific edge data
+    setCurrentPage('edge-history'); // Change the view
+  };
+
+  // ✅ Back button from History Page
+  const handleBackToDash = () => {
+    setHistoryEdge(null);
+    setCurrentPage('dashboard');
   };
 
   // ---------------- Audio ----------------
@@ -283,6 +303,14 @@ function App() {
           {currentPage === 'alerts' && (
             <AlertsPage incidents={incidents} />
           )}
+
+          {/* ✅ New Route: Edge History Page */}
+          {currentPage === 'edge-history' && (
+            <EdgeHistoryPage 
+              edge={historyEdge} 
+              onBack={handleBackToDash} 
+            />
+          )}
         </main>
 
         <footer className="footer">
@@ -294,7 +322,11 @@ function App() {
       </div>
 
       {selectedEdge && (
-        <DetailsModal edge={selectedEdge} onClose={() => setSelectedEdge(null)} />
+        <DetailsModal 
+          edge={selectedEdge} 
+          onClose={() => setSelectedEdge(null)} 
+          onViewHistory={handleViewHistory} // ✅ Pass handler to Modal
+        />
       )}
 
       <div id="toast-container">

@@ -413,3 +413,9 @@ html, body {
   .edge-item { flex-direction: column; align-items: flex-start; gap: 8px; }
   .edge-item .pill { align-self: flex-start; }
 }
+
+.btn-icon.back-btn {
+  background: white;
+  border: 1px solid var(--border-color);
+  margin-right: 15px;
+}
